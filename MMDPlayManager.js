@@ -23,6 +23,10 @@ let MMDPlayManager = class {
 
     clock;
 
+    playStatus = "play"; //播放状态
+    totalTime = 0; //当前MMD总播放时间
+    renderIntervalID; //渲染延时器ID
+
     constructor(params = {}, ClassOfDurationData) {
         this.configuration = {
             loopPlay: params.loopPlay || false, //设置循环播放，默认为false
@@ -31,7 +35,7 @@ let MMDPlayManager = class {
             enableCCDIKHelper: params.enableCCDIKHelper || false,
             enablePhysicsHelper: params.enablePhysicsHelper || false,
             enablePhysicWhenMMDPause: params.enablePhysicWhenMMDPause || true, //播放暂停时仍开启物理效果，默认为true
-            enablePauseWhenLeaveCurrentPage: params.enablePauseWhenLeaveCurrentPage || true,
+            enablePauseWhenLeaveCurrentPage: params.enablePauseWhenLeaveCurrentPage || true, //当离开页面时启用暂停，节省算力消耗，默认为true
             mmdLoader: {},
             mmdAnimationHelper: {},
             mmdFilesPath: {
@@ -78,10 +82,13 @@ let MMDPlayManager = class {
             this.stats = new Stats();
             this.statsContainer.appendChild(this.stats.dom);
         }
+
+        //创建时钟
+        this.clock = new THREE.Clock();
     }
 
     _loadMMDPlayer() {
-        let that = this; //引向当前类所属的this指针
+        var that = this; //引向当前类所属的this指针
         this.mmdLoader.loadWithAnimation(
             this.configuration.mmdFilesPath.modelFile,
             this.configuration.mmdFilesPath.vmdFile,
@@ -125,10 +132,6 @@ let MMDPlayManager = class {
             }, this._onProgress, this._onError)
     }
 
-    _animationRender(RenderType) {
-
-    }
-
     _onProgress(xhr) {
         console.log((xhr.loaded / xhr.total * 100) + '% loaded')
     }
@@ -137,12 +140,51 @@ let MMDPlayManager = class {
         throw new Error("MMDPlayManager: Error happened when loading player.\nError Info:", err);
     }
 
+    _animationRender(RenderType) {
+        if (RenderType == 'ControlRender') {
+            //更新FPS工具
+            this.stats.update();
+            //是否启用暂停时包含物理动作帧
+            if (this.configuration.enablePhysicWhenMMDPause == true) this.mmdAnimationHelper.update(0);
+            //渲染
+            renderer.render(scene, camera);
+        } else if (RenderType == 'NotRender') {
+            console.log("MMD渲染帧完全关闭");
+        } else if (RenderType == undefined || RenderType == null) {
+            this.totalTime += this.clock.getDelta();
+            this.stats.update();
+            this.mmdAnimationHelper.update(timeDelta);
+            renderer.render(scene, camera);
+        }
+    }
+
     rePlay() {
 
     }
 
-    PlayPause() {
+    PlayPause(...args) {
+        if (args.length == 0) {
+            this.playStatus = this.playStatus == "play" ? "pause" : "play"
+        } else if (args.length == 1) {
+            if (this.playStatus == args[0]) return this.playStatus;
+            else this.playStatus = args[0] == "play" ? "play" : "pause"
+        } else {
+            if (args[0] == "play" && args[1] == "v") {
+                if (beforeVisibilityChangePlayStatus.visible == 'play') this.playStatus = 'play'
+                else return beforeVisibilityChangePlayStatus.visible
+            } else if (args[0] == "pause" && args[1] == "v") this.playStatus = 'pause'
+        }
 
+        if (this.playStatus == "pause") {
+            clearInterval(this.renderIntervalID);
+            this.renderIntervalID = setInterval(() => { this._animationRender("ControlRender") }, 1000 / this.configuration.renderFPS);
+            return this.playStatus;
+        } else if (this.playStatus == "play") {
+            clearInterval(this.renderIntervalID);
+            clock = new THREE.Clock();
+            this.renderIntervalID = setInterval(() => { this._animationRender() }, 1000 / this.configuration.renderFPS);
+            return this.playStatus;
+        }
     }
 
     //TODO：检查中断暂停的位置，之后再决定是否继续播放
