@@ -1,5 +1,6 @@
-// !必须在MMDPlayManager类外正确命名renderer camera scene
-// TODO添加所需依赖文件
+// ! 必须在MMDPlayManager类外正确传入 renderer camera scene
+// TODO 添加所需依赖文件
+// TODO Renderer开启shadowMap
 
 let MMDPlayManager = class {
 
@@ -23,6 +24,8 @@ let MMDPlayManager = class {
 
     clock;
 
+    controls;
+
     playStatus = "play"; //播放状态
     totalTime = 0; //当前MMD总播放时间
     renderIntervalID; //渲染延时器ID
@@ -35,7 +38,7 @@ let MMDPlayManager = class {
             enableCCDIKHelper: params.enableCCDIKHelper || false,
             enablePhysicsHelper: params.enablePhysicsHelper || false,
             enablePhysicWhenMMDPause: params.enablePhysicWhenMMDPause || true, //播放暂停时仍开启物理效果，默认为true
-            enablePauseWhenLeaveCurrentPage: params.enablePauseWhenLeaveCurrentPage || true, //当离开页面时启用暂停，节省算力消耗，默认为true
+            enablePauseWhenLeaveCurrentPage: params.enablePauseWhenLeaveCurrentPage || true, //当离开页面时启用暂停，减少算力消耗，默认为true
             mmdLoader: {},
             mmdAnimationHelper: {},
             mmdFilesPath: {
@@ -45,7 +48,8 @@ let MMDPlayManager = class {
                 audioFile: params.mmdFilesPath.audioFile || ""
             },
             audioDelayTime: params.audioDelayTime || 0.0,
-            enableStatsTool: params.mmdFilesPath.audioFile || true //开启FPS显示工具
+            enableStatsTool: params.enableStatsTool || true, //开启FPS显示工具
+            enableControlTool: params.enableControlTool || true, //开启场景控制工具
         }
         if (ClassOfDurationData != undefined) {
             if (ClassOfDurationData.constructor.name == 'DurationData') {
@@ -62,6 +66,9 @@ let MMDPlayManager = class {
             } else throw new Error("MMDPlayManager: Unvaild instance. Use DurationData instance.");
         }
         this._createMMDPlayer();
+
+        //*当离开页面时启用暂停，减少算力消耗
+        _visibilityChangePlayPauseManager(this.configuration.enablePauseWhenLeaveCurrentPage);
     }
 
     _createMMDPlayer() {
@@ -76,7 +83,7 @@ let MMDPlayManager = class {
         this.audioLoader = new THREE.AudioLoader();
 
         //开启FPS显示工具
-        if (this.configuration.enableStatsTool == true) {
+        if (this.configuration.enableStatsTool) {
             this.statsContainer = document.createElement('div');
             document.body.appendChild(container);
             this.stats = new Stats();
@@ -85,6 +92,12 @@ let MMDPlayManager = class {
 
         //创建时钟
         this.clock = new THREE.Clock();
+
+        //创建OrbitControls工具
+        if (this.configuration.enableControlTool) {
+            this.controls = new THREE.OrbitControls(camera, renderer.domElement);
+
+        }
     }
 
     _loadMMDPlayer() {
@@ -162,6 +175,7 @@ let MMDPlayManager = class {
 
     }
 
+    //*播放与暂停事件
     PlayPause(...args) {
         if (args.length == 0) {
             this.playStatus = this.playStatus == "play" ? "pause" : "play"
@@ -193,5 +207,38 @@ let MMDPlayManager = class {
             return duration >= this.minPlayEnd;
         else
             return duration >= this.maxPlayEnd;
+    }
+
+    //*当离开页面时启用暂停，减少算力消耗
+    beforeVisibilityChangePlayStatus = { visible: String, hidden: String };
+    __visibilityChangeEventAdded = false;
+    _visibilityChangePlayPauseManager(enable) {
+        let visibilityChangePlayPause = function () {
+            // console.log(document.webkitVisibilityState);
+            if (document.webkitVisibilityState == "visible") {
+                this.beforeVisibilityChangePlayStatus.hidden = playStatus;
+                this.PlayPause("play", 'v');
+            }
+            else {
+                this.beforeVisibilityChangePlayStatus.visible = playStatus;
+                this.PlayPause("pause", 'v');
+            }
+        }
+
+        if (this.__visibilityChangeEventAdded == false) {
+            document.addEventListener('webkitvisibilitychange', visibilityChangePlayPause, true);
+            this.__visibilityChangeEventAdded = true;
+        }
+    }
+
+    _controlManager(enable) {
+        this.controls.addEventListener('change', function () {
+            if (this.playStatus != "pause") {
+                clearInterval(this.renderIntervalID);
+                this._animationRender();
+                this.renderIntervalID = setInterval(() => { this._animationRender() }, 1000 / this.configuration.renderFPS);
+                console.log("场景控制插入帧渲染", renderIntervalID);
+            }
+        });//监听鼠标、键盘事件
     }
 }
