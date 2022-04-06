@@ -30,7 +30,20 @@ let MMDPlayManager = class {
     totalTime = 0; //当前MMD总播放时间
     renderIntervalID; //渲染延时器ID
 
-    constructor(params = {}, ClassOfDurationData) {
+    durationRecorder; //文件时长记录器 每个文件的时间长度
+
+    onLoadParams = {
+        loadStatus: {
+            model: Boolean,
+            motion: Boolean,
+            camera: Boolean,
+            audio: Boolean
+        },
+        callbackFunc: Function,
+        FuncArg
+    };
+
+    constructor(params = {}) {
         this.configuration = {
             loopPlay: params.loopPlay || false, //设置循环播放，默认为false
             playEnd: params.playEnd || "minPlayEnd", //设置所有文件播放时间其中的最大值或最小值作为播放结束的标志，默认为最小时间结束播放
@@ -51,20 +64,8 @@ let MMDPlayManager = class {
             enableStatsTool: params.enableStatsTool || true, //开启FPS显示工具
             enableControlTool: params.enableControlTool || true, //开启场景控制工具
         }
-        if (ClassOfDurationData != undefined) {
-            if (ClassOfDurationData.constructor.name == 'DurationData') {
-                this.totalDuration = ClassOfDurationData.totalDuration;
-                var { totalDuration } = this;
-                for (const key in totalDuration) {
-                    if (totalDuration[key] > 0) {
-                        if (totalDuration[key] > this.maxPlayEnd)
-                            this.maxPlayEnd = totalDuration[key]
-                        if (totalDuration[key] < this.minPlayEnd || this.minPlayEnd < 0)
-                            this.minPlayEnd = totalDuration[key]
-                    }
-                }
-            } else throw new Error("MMDPlayManager: Unvaild instance. Use DurationData instance.");
-        }
+
+
         this._createMMDPlayer();
 
         //*当离开页面时启用暂停，减少算力消耗
@@ -84,11 +85,10 @@ let MMDPlayManager = class {
 
         //开启FPS显示工具
         if (this.configuration.enableStatsTool) {
-            this.statsContainer = document.createElement('div');
-            document.body.appendChild(container);
             this.stats = new Stats();
-            this.statsContainer.appendChild(this.stats.dom);
         }
+
+
 
         //创建时钟
         this.clock = new THREE.Clock();
@@ -96,8 +96,10 @@ let MMDPlayManager = class {
         //创建OrbitControls工具
         if (this.configuration.enableControlTool) {
             this.controls = new THREE.OrbitControls(camera, renderer.domElement);
-
         }
+
+        //创建文件时长记录器
+        this.durationRecorder = new DurationRecorder();
     }
 
     _loadMMDPlayer() {
@@ -105,7 +107,7 @@ let MMDPlayManager = class {
         this.mmdLoader.loadWithAnimation(
             this.configuration.mmdFilesPath.modelFile,
             this.configuration.mmdFilesPath.vmdFile,
-            function (modelAndAnimeInfo) {
+            function(modelAndAnimeInfo) {
                 //模型开启投掷投影，接收投影
                 modelAndAnimeInfo.mesh.castShadow = true;
                 modelAndAnimeInfo.mesh.receiveShadow = true;
@@ -119,12 +121,22 @@ let MMDPlayManager = class {
                 //加载音频文件
                 that.audioLoader.load(
                     that.configuration.mmdFilesPath.audioFile,
-                    function (audioBuffer) {
+                    function(audioBuffer) {
                         that.audio.setBuffer(audioBuffer);
                         that.mmdAnimationHelper.add(that.audio, { delayTime: this.configuration.audio });
+
+                        //更新时间记录器数据-音频
+                        that.durationRecorder.update({}); //? audioDuration: modelAndAnimeInfo.animation.duration
+                        //传入音频文件加载完成参数
+                        that.onLoadParams.loadStatus.audio = true;
                     },
                     that._onProgress, that._onError
                 );
+
+                //更新动作文件时间记录器数据
+                that.durationRecorder.update({ motionDuration: modelAndAnimeInfo.animation.duration });
+                //传入动作与模型文件加载完成参数
+                that.onLoadParams.loadStatus = { motion: true, model: true };
 
                 //是否显示骨骼
                 if (that.configuration.enableCCDIKHelper == true) {
@@ -141,6 +153,7 @@ let MMDPlayManager = class {
                     that.physicsHelper.visible = true;
                     scene.add(that.physicsHelper);
                 }
+
 
             }, this._onProgress, this._onError)
     }
@@ -169,6 +182,22 @@ let MMDPlayManager = class {
             this.mmdAnimationHelper.update(timeDelta);
             renderer.render(scene, camera);
         }
+    }
+
+    //*当加载完成时调用函数
+    onLoad(callback, ...args) {
+        this.onLoadParams.callbackFunc = callback;
+        this.onLoadParams.FuncArg = args;
+    }
+
+    _onLoad() {
+        //在文件加载完成后启用控制
+        _controlManager(this.configuration.enableControlTool);
+        //在文件加载完成后启用Stats FPS分析工具
+    }
+
+    removeAll() {
+
     }
 
     rePlay() {
@@ -213,13 +242,12 @@ let MMDPlayManager = class {
     beforeVisibilityChangePlayStatus = { visible: String, hidden: String };
     __visibilityChangeEventAdded = false;
     _visibilityChangePlayPauseManager(enable) {
-        let visibilityChangePlayPause = function () {
+        let visibilityChangePlayPause = function() {
             // console.log(document.webkitVisibilityState);
             if (document.webkitVisibilityState == "visible") {
                 this.beforeVisibilityChangePlayStatus.hidden = playStatus;
                 this.PlayPause("play", 'v');
-            }
-            else {
+            } else {
                 this.beforeVisibilityChangePlayStatus.visible = playStatus;
                 this.PlayPause("pause", 'v');
             }
@@ -232,13 +260,64 @@ let MMDPlayManager = class {
     }
 
     _controlManager(enable) {
-        this.controls.addEventListener('change', function () {
-            if (this.playStatus != "pause") {
-                clearInterval(this.renderIntervalID);
-                this._animationRender();
-                this.renderIntervalID = setInterval(() => { this._animationRender() }, 1000 / this.configuration.renderFPS);
-                console.log("场景控制插入帧渲染", renderIntervalID);
+        if (enable) {
+            this.controls.addEventListener('change', function() {
+                if (this.playStatus != "pause") {
+                    clearInterval(this.renderIntervalID);
+                    this._animationRender();
+                    this.renderIntervalID = setInterval(() => { this._animationRender() }, 1000 / this.configuration.renderFPS);
+                    console.log("场景控制插入帧渲染", renderIntervalID);
+                }
+            }); //监听鼠标、键盘事件
+        }
+    }
+
+    _statsMananger(enable) {
+        if (enable) {
+            this.statsContainer = document.createElement('div');
+            document.body.appendChild(this.statsContainer);
+            this.statsContainer.appendChild(this.stats.dom);
+
+        }
+
+    }
+}
+
+//*每个文件的时间长度
+let DurationRecorder = class {
+    totalDuration = {
+        motionDuration: 0,
+        cameraDuration: 0,
+        audioDuration: 0
+    }
+    minDuration;
+    maxDuration;
+
+    constructor() {}
+    update(params = {}) {
+        for (const key in params) {
+            for (const totalDurationName in this.totalDuration) {
+                if (key == totalDurationName) {
+                    this.totalDuration[totalDurationName] = params[key];
+                    break;
+                }
             }
-        });//监听鼠标、键盘事件
+        }
+        return this;
+
+
+        // if (ClassOfDurationData.constructor.name == 'DurationData') {
+        //     this.totalDuration = ClassOfDurationData.totalDuration;
+        //     var { totalDuration } = this;
+        //     for (const key in totalDuration) {
+        //         if (totalDuration[key] > 0) {
+        //             if (totalDuration[key] > this.maxPlayEnd)
+        //                 this.maxPlayEnd = totalDuration[key]
+        //             if (totalDuration[key] < this.minPlayEnd || this.minPlayEnd < 0)
+        //                 this.minPlayEnd = totalDuration[key]
+        //         }
+        //     }
+        // } else throw new Error("MMDPlayManager: Unvaild instance. Use DurationData instance.");
+
     }
 }
