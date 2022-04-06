@@ -41,6 +41,14 @@ let MMDPlayManager = class {
         FuncArg: Array
     };
 
+
+    //********!正在测试的方法 无法确定对象是否可以进行浅拷贝
+    // scene;
+    // camera;
+    // renderer;
+    // document;
+    //******** 
+
     constructor(params = {}) {
         this.configuration = {
             loopPlay: params.loopPlay || false, //设置循环播放，默认为false
@@ -48,7 +56,8 @@ let MMDPlayManager = class {
             renderFPS: params.renderFPS || 60, //设置渲染帧率，默认为60HZ
             enableCCDIKHelper: params.enableCCDIKHelper || false,
             enablePhysicsHelper: params.enablePhysicsHelper || false,
-            enablePhysicWhenMMDPause: params.enablePhysicWhenMMDPause || true, //播放暂停时仍开启物理效果，默认为true
+            //!播放暂停时仍开启物理效果，默认为false。注意：开启后，页面缩小或不显示时图像仍在渲染
+            enablePhysicWhenMMDPause: params.enablePhysicWhenMMDPause || false,
             enablePauseWhenLeaveCurrentPage: params.enablePauseWhenLeaveCurrentPage || true, //当离开页面时启用暂停，减少算力消耗，默认为true
             mmdLoader: {},
             mmdAnimationHelper: {},
@@ -61,19 +70,26 @@ let MMDPlayManager = class {
             audioDelayTime: params.audioDelayTime || 0.0,
             enableStatsTool: params.enableStatsTool || true, //开启FPS显示工具
             enableControlTool: params.enableControlTool || true, //开启场景控制工具
-            enableMustLoadModelFile: true, //!选择开启必须加载模型文件
+            enableMustLoadModelFile: true, //! 选择开启必须加载模型文件
+            enableLoadMMDWhenCreateManager: true, //* 选择在此类被创建(运行本构造函数)时就开始加载MMD
         }
 
+        //* 检测是否在此类被创建(运行本构造函数)时就开始加载MMD
+        if (this.configuration.enableLoadMMDWhenCreateManager)
+            this.startLoadingMMD();
+    }
+
+    startLoadingMMD() {
+        //* 检测是否已加载模型文件和动作文件
         if (this.configuration.enableMustLoadModelFile) {
             if (this.configuration.mmdFilesPath.modelFile == "") {
-                throw new Error("\n\nMMDPlayManager: modelFile not loaded.\nMust load modelFile enabled.\n");
+                throw new Error("\n\nMMDPlayManager: modelFile and motionFile not loaded.\nMust load modelFile and motionFile enabled.\n");
             }
         }
 
         this._createMMDPlayer();
-
-        //*当离开页面时启用暂停，减少算力消耗
-        this._visibilityChangePlayPauseManager(this.configuration.enablePauseWhenLeaveCurrentPage);
+        this._loadMMDPlayer();
+        this.renderIntervalID = setInterval(() => { this._animationRender(); }, 1000 / renderFPS);
     }
 
     _createMMDPlayer() {
@@ -83,8 +99,8 @@ let MMDPlayManager = class {
 
         //创建音频
         this.audioListener = new THREE.AudioListener();
-        camera.add(audioListener);
-        this.audio = new THREE.Audio(audioListener);
+        camera.add(this.audioListener);
+        this.audio = new THREE.Audio(this.audioListener);
         this.audioLoader = new THREE.AudioLoader();
 
         //开启FPS显示工具
@@ -138,7 +154,7 @@ let MMDPlayManager = class {
                 //更新动作文件时间记录器数据
                 that.durationRecorder.update({ motionDuration: modelAndAnimeInfo.animation.duration });
                 //更新动作与模型文件已加载完成
-                that._onLoad({motionFile: true, modelFile: true})
+                that._onLoad({ motionFile: true, modelFile: true })
 
                 //是否显示骨骼
                 if (that.configuration.enableCCDIKHelper == true) {
@@ -169,20 +185,28 @@ let MMDPlayManager = class {
     }
 
     _animationRender(RenderType) {
+
+        //!callback
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        fixCameraRatio();
+
         if (RenderType == 'ControlRender') {
             //更新FPS工具
             this.stats.update();
             //是否启用暂停时包含物理动作帧
-            if (this.configuration.enablePhysicWhenMMDPause == true) this.mmdAnimationHelper.update(0);
+            if (this.configuration.enablePhysicWhenMMDPause == true)
+                this.mmdAnimationHelper.update(0);
             //渲染
             renderer.render(scene, camera);
-        } else if (RenderType == 'NotRender') {
-            console.log("MMD渲染帧完全关闭");
         } else if (RenderType == undefined || RenderType == null) {
-            this.totalTime += this.clock.getDelta();
+            let timeDelta = this.clock.getDelta();
+
+            this.totalTime += timeDelta;
             this.stats.update();
             this.mmdAnimationHelper.update(timeDelta);
             renderer.render(scene, camera);
+        } else if (RenderType == 'NotRender') {
+            console.log("MMD渲染帧完全关闭");
         }
     }
 
@@ -209,6 +233,7 @@ let MMDPlayManager = class {
         }
     }
 
+    __onLoadEventTriggered = false; //*加载事件只能触发一次 此方法检测加载事件是否被触发
     _onLoad({ params }) {
         //传入所加载完成文件的参数
         let loadStatus = this.onLoadParams.loadStatus;
@@ -231,11 +256,17 @@ let MMDPlayManager = class {
             }
         }
 
-        if (isLoadFinish == true) {
+        if (isLoadFinish == true && __onLoadEventTriggered == false) {
+
+            __onLoadEventTriggered = true
+
             //在文件加载完成后启用控制
-            _controlManager(this.configuration.enableControlTool);
+            this._controlManager(this.configuration.enableControlTool);
             //在文件加载完成后启用Stats FPS分析工具
-            _statsMananger(this.configuration.enableStatsTool);
+            this._statsManager(this.configuration.enableStatsTool);
+            //在文件加载完成后启用 当离开页面时启用暂停，减少算力消耗
+            this._visibilityChangePlayPauseManager(this.configuration.enablePauseWhenLeaveCurrentPage);
+
             //*调用onLoad的回调函数
             this.onLoadParams.callbackFunc();
         }
@@ -270,7 +301,7 @@ let MMDPlayManager = class {
             return this.playStatus;
         } else if (this.playStatus == "play") {
             clearInterval(this.renderIntervalID);
-            clock = new THREE.Clock();
+            this.clock = new THREE.Clock();
             this.renderIntervalID = setInterval(() => { this._animationRender() }, 1000 / this.configuration.renderFPS);
             return this.playStatus;
         }
@@ -312,7 +343,7 @@ let MMDPlayManager = class {
         }
     }
 
-    _statsMananger(enable) {
+    _statsManager(enable) {
         if (enable) {
             this.statsContainer = document.createElement('div');
             document.body.appendChild(this.statsContainer);
