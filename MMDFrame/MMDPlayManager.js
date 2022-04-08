@@ -92,7 +92,7 @@ let MMDPlayManager = class {
 
         //* 计算需加载文件数量
         let filePath = this.configuration.mmdFilesPath
-            // let loadStatus = this.onLoadParams.loadStatus
+        // let loadStatus = this.onLoadParams.loadStatus
 
         for (const fileKey in filePath) {
             if (filePath[fileKey] != "") {
@@ -383,7 +383,7 @@ let DurationRecorder = class {
     minDuration = Number();
     maxDuration = Number();
 
-    constructor() {}
+    constructor() { }
     update(params = {}) {
         for (const key in params) {
             for (const totalDurationName in this.totalDuration) {
@@ -418,39 +418,71 @@ let LoadEventHolder = class {
 
     configuration = {}
 
+    keyDict = [
+        { key: "userFeedback", default: Function() }, //* 用户回调函数
+        { key: "userReturnArgs", default: Array() }, //* 用户回调函数回调形参数
+        { key: "funcFeedback", default: Function() }, //* 第二个(可用于其他类)回调函数
+        { key: "funcReturnArgs", default: Array() }, //* 第二个(可用于其他类)回调函数回调形参数
+        { key: "allowMultiTrigger", default: false }, //* 允许多次触发
+        { key: "__eventTriggered", default: false } // TODO 不可修改，用于判断回调函数是否被触发
+    ];
+
     constructor(params = {}) {
         for (const paramsKey in params) {
             this.configuration[paramsKey] = {};
-            this.configuration[paramsKey]["userFeedback"] = params[paramsKey]["feedback"] || Function();
-            this.configuration[paramsKey]["userReturnArgs"] = params[paramsKey]["userReturnArgs"] || Array();
-            this.configuration[paramsKey]["funcFeedback"] = params[paramsKey]["funcFeedback"] || Function();
-            this.configuration[paramsKey]["funcReturnArgs"] = params[paramsKey]["funcReturnArgs"] || Array();
-            this.configuration[paramsKey]["__allowMultiTrigger"] = params[paramsKey]["allowMultiTrigger"] || false;
-            this.configuration[paramsKey]["__onLoadEventTriggered"] = false;
+            for (let i = 0; i < this.keyDict.length; i++) {
+                this.configuration[paramsKey][this.keyDict[i]["key"]] = params[paramsKey][this.keyDict[i]["key"]] || this.keyDict[i]["default"];
+            }
         }
     }
-
-
-    keyDict = ["userFeedback", "userReturnArgs", "funcFeedback", "funcReturnArgs", "__allowMultiTrigger", "__onLoadEventTriggered"];
 
     //* 添加回调函数到配置
     addFeedback(params = {}) {
         for (const paramsKey in params) {
-            if (this.configuration[paramsKey]) {
-                for (let i = 0; i < keyDict.length; i++) {
-                    this.configuration[paramsKey][keyDict[i]] = params[paramsKey][keyDict[i]];
+            //* 一些判断配置是否为新添加，是则按照构造器定义，否则不添加keyDict中的默认参数
+            let isNewlyAdd = false;
+            if (!this.configuration[paramsKey]) {
+                this.configuration[paramsKey] = {};
+                isNewlyAdd = true;
+            }
+            for (let i = 0; i < this.keyDict.length; i++) {
+                if (isNewlyAdd)
+                    this.configuration[paramsKey][this.keyDict[i]["key"]] = params[paramsKey][this.keyDict[i]["key"]] || this.keyDict[i]["default"];
+                else {
+                    if (params[paramsKey][this.keyDict[i]["key"]]) {
+                        this.configuration[paramsKey][this.keyDict[i]["key"]] = params[paramsKey][this.keyDict[i]["key"]];
+                    }
                 }
             }
         }
         return this;
     }
 
+    //* 调用回调函数
     call(params = {}) {
-        addFeedback(params);
+        this.addFeedback(params);
+
         //* 回调函数
         for (const key in this.configuration) {
             for (const paramsKey in params) {
+                let config = this.configuration[key]
+                if (key == paramsKey) {
+                    if (config.allowMultiTrigger == true || config.__eventTriggered == false) {
+                        this.configuration[key].__eventTriggered == true;
 
+                        //!如果参数只有一个，返回一个参数，否则，返回给回调函数整个数组作为参数
+                        if (config.userReturnArgs.length == 0) {
+                            config.userFeedback();
+                            config.funcFeedback();
+                        } else if (config.userReturnArgs.length == 1) {
+                            config.userFeedback(config.userReturnArgs[0]);
+                            config.funcFeedback(config.userReturnArgs[0]);
+                        } else {
+                            config.userFeedback(config.userReturnArgs);
+                            config.funcFeedback(config.funcReturnArgs);
+                        }
+                    }
+                }
             }
         }
         return this;
