@@ -72,7 +72,11 @@ var playerConfiguration = {
     },
     renderFPS: 100,
     enablePhysicWhenMMDPause: true,
-    enablePauseWhenLeaveCurrentPage: true
+    enablePauseWhenLeaveCurrentPage: true,
+    mmdAnimationHelper: {
+        sync: true,
+        pmxAnimation: true
+    }
 }
 
 let playManager = new MMDPlayManager(playerConfiguration);
