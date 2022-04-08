@@ -61,8 +61,8 @@ let MMDPlayManager = class {
             //!播放暂停时仍开启物理效果，默认为false。注意：开启后，页面缩小或不显示时图像仍在渲染
             enablePhysicWhenMMDPause: params.enablePhysicWhenMMDPause || false,
             enablePauseWhenLeaveCurrentPage: params.enablePauseWhenLeaveCurrentPage || true, //当离开页面时启用暂停，减少算力消耗，默认为true
-            mmdLoader: {},
-            mmdAnimationHelper: {},
+            mmdLoader: params.mmdLoader,
+            mmdAnimationHelper: params.mmdAnimationHelper,
             mmdFilesPath: {
                 modelFile: params.mmdFilesPath.modelFile || "",
                 motionFile: params.mmdFilesPath.motionFile || "",
@@ -155,7 +155,7 @@ let MMDPlayManager = class {
     _createMMDPlayer() {
         //创建MMD加载器和MMDAnimationHelper
         this.mmdLoader = new THREE.MMDLoader(this.configuration.mmdLoader);
-        this.mmdAnimationHelper = new THREE.MMDAnimationHelper(this.configuration.MMDAnimationHelper);
+        this.mmdAnimationHelper = new THREE.MMDAnimationHelper(this.configuration.mmdAnimationHelper);
 
         //创建音频
         this.audioListener = new THREE.AudioListener();
@@ -197,10 +197,15 @@ let MMDPlayManager = class {
                         this.audio.setBuffer(audioBuffer);
                         this.mmdAnimationHelper.add(this.audio, { delayTime: this.configuration.audioDelayTime });
 
+                        console.log(this.mmdAnimationHelper, this.configuration.mmdAnimationHelper);
                         //更新时间记录器数据-音频
                         this.durationRecorder.update({ audioDuration: audioBuffer.duration });
                         //更新音频文件已加载完成
-                        this._onLoad({ audioFile: true })
+                        this._onLoad({ audioFile: true });
+
+                        this.mmdAnimationHelper._syncDuration();
+
+                        camera.add( this.audioListener );
                     },
                     this._onProgress, this._onError
                 );
@@ -245,7 +250,6 @@ let MMDPlayManager = class {
 
     // _animationRender_loadEventHolder
     _animationRender(RenderType) {
-
         //!callback
         renderer.setSize(window.innerWidth, window.innerHeight);
         fixCameraRatio();
