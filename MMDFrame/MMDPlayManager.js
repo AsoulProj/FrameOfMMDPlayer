@@ -92,7 +92,7 @@ let MMDPlayManager = class {
 
         //* 计算需加载文件数量
         let filePath = this.configuration.mmdFilesPath
-        // let loadStatus = this.onLoadParams.loadStatus
+            // let loadStatus = this.onLoadParams.loadStatus
 
         for (const fileKey in filePath) {
             if (filePath[fileKey] != "") {
@@ -111,6 +111,10 @@ let MMDPlayManager = class {
         this.onLoadParams.callbackFunc = callback;
         //? this.onLoadParams.FuncArg = args;
     }
+
+    callback = new LoadEventHolder();
+
+    onLoad = new LoadEventHolder();
 
     __onLoadEventTriggered = false; //*加载事件只能触发一次 此方法检测加载事件是否被触发
     _onLoad(params = {}) {
@@ -205,7 +209,7 @@ let MMDPlayManager = class {
 
                         this.mmdAnimationHelper._syncDuration();
 
-                        camera.add( this.audioListener );
+                        camera.add(this.audioListener);
                     },
                     this._onProgress, this._onError
                 );
@@ -379,7 +383,7 @@ let DurationRecorder = class {
     minDuration = Number();
     maxDuration = Number();
 
-    constructor() { }
+    constructor() {}
     update(params = {}) {
         for (const key in params) {
             for (const totalDurationName in this.totalDuration) {
@@ -411,14 +415,44 @@ let DurationRecorder = class {
 
 //????????
 let LoadEventHolder = class {
-    callbackFunc = Function();
-    returnCallbackArgs = Array();
-    __onLoadEventTriggered = Boolean();
-    __allowMultiTrigger = Boolean();
 
-    constructor() { }
+    configuration = {}
 
-    event(callback) {
-        this.callbackFunc = callback
+    constructor(params = {}) {
+        for (const paramsKey in params) {
+            this.configuration[paramsKey] = {};
+            this.configuration[paramsKey]["userFeedback"] = params[paramsKey]["feedback"] || Function();
+            this.configuration[paramsKey]["userReturnArgs"] = params[paramsKey]["userReturnArgs"] || Array();
+            this.configuration[paramsKey]["funcFeedback"] = params[paramsKey]["funcFeedback"] || Function();
+            this.configuration[paramsKey]["funcReturnArgs"] = params[paramsKey]["funcReturnArgs"] || Array();
+            this.configuration[paramsKey]["__allowMultiTrigger"] = params[paramsKey]["allowMultiTrigger"] || false;
+            this.configuration[paramsKey]["__onLoadEventTriggered"] = false;
+        }
+    }
+
+
+    keyDict = ["userFeedback", "userReturnArgs", "funcFeedback", "funcReturnArgs", "__allowMultiTrigger", "__onLoadEventTriggered"];
+
+    //* 添加回调函数到配置
+    addFeedback(params = {}) {
+        for (const paramsKey in params) {
+            if (this.configuration[paramsKey]) {
+                for (let i = 0; i < keyDict.length; i++) {
+                    this.configuration[paramsKey][keyDict[i]] = params[paramsKey][keyDict[i]];
+                }
+            }
+        }
+        return this;
+    }
+
+    call(params = {}) {
+        addFeedback(params);
+        //* 回调函数
+        for (const key in this.configuration) {
+            for (const paramsKey in params) {
+
+            }
+        }
+        return this;
     }
 }
