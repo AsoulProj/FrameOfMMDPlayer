@@ -29,6 +29,10 @@ let MMDPlayManager = class {
 
     durationRecorder; //类-文件时长记录器 记录每个文件的时间长度及所有文件中最大和最小时间长度
 
+    loadEventHolder; //事件回调函数控制器
+
+    modelSkinnedMesh
+
     onLoadParams = {
         needLoadFileNum: Number(),
         currentLoadFileNum: Number(),
@@ -52,31 +56,52 @@ let MMDPlayManager = class {
     //******** 
 
     constructor(params = {}) {
+
         this.configuration = {
-            loopPlay: params.loopPlay || false, //设置循环播放，默认为false
+            loopPlay: params.loopPlay !== undefined ?
+                params.loopPlay : false, //设置循环播放，默认为false
+
             playEnd: params.playEnd || "minPlayEnd", //设置所有文件播放时间其中的最大值或最小值作为播放结束的标志，默认为最小时间结束播放
             renderFPS: params.renderFPS || 60, //设置渲染帧率，默认为60HZ
-            enableCCDIKHelper: params.enableCCDIKHelper || false,
-            enablePhysicsHelper: params.enablePhysicsHelper || false,
+
+            enableCCDIKHelper: params.enableCCDIKHelper !== undefined ?
+                params.enableCCDIKHelper : false,
+
+            enablePhysicsHelper: params.enablePhysicsHelper !== undefined ?
+                params.enablePhysicsHelper : false,
+
             //!播放暂停时仍开启物理效果，默认为false。注意：开启后，页面缩小或不显示时图像仍在渲染
-            enablePhysicWhenMMDPause: params.enablePhysicWhenMMDPause || false,
-            enablePauseWhenLeaveCurrentPage: params.enablePauseWhenLeaveCurrentPage || true, //当离开页面时启用暂停，减少算力消耗，默认为true
+            enablePhysicWhenMMDPause: params.enablePhysicWhenMMDPause !== undefined ?
+                params.enablePhysicWhenMMDPause : false,
+
+            enablePauseWhenLeaveCurrentPage: params.enablePauseWhenLeaveCurrentPage !== undefined ?
+                params.enablePauseWhenLeaveCurrentPage : true, //当离开页面时启用暂停，减少算力消耗，默认为true
+
             mmdLoader: params.mmdLoader,
             mmdAnimationHelper: params.mmdAnimationHelper,
             mmdFilesPath: {
                 modelFile: params.mmdFilesPath.modelFile || "",
-                motionFile: params.mmdFilesPath.motionFile || "",
+                motionFile: params.mmdFilesPath.motionFile || "./mmdFiles/default.vmd",
                 cameraFile: params.mmdFilesPath.cameraFile || "",
                 audioFile: params.mmdFilesPath.audioFile || ""
             },
             audioDelayTime: params.audioDelayTime || 0.0,
-            enableStatsTool: params.enableStatsTool || true, //开启FPS显示工具
-            enableControlTool: params.enableControlTool || true, //开启场景控制工具
-            enableMustLoadModelFile: true, //! 选择开启必须加载模型文件
-            enableLoadMMDWhenCreateManager: true, //* 选择在此类被创建(运行本构造函数)时就开始加载MMD
 
+            enableStatsTool: params.enableStatsTool !== undefined ?
+                params.enableStatsTool : true, //开启FPS显示工具
+
+            enableControlTool: params.enableControlTool !== undefined
+                ? params.enableControlTool : true, //开启场景控制工具
+
+            enableMustLoadModelFile: params.enableMustLoadModelFile !== undefined
+                ? params.enableMustLoadModelFile : true, //! 选择开启必须加载模型文件
+
+            enableLoadMMDWhenCreateManager: params.enableLoadMMDWhenCreateManager !== undefined
+                ? params.enableLoadMMDWhenCreateManager : true, //* 选择在此类被创建(运行本构造函数)时就开始加载MMD
+
+            enableCameraMotion: params.enableCameraMotion !== undefined
+                ? params.enableCameraMotion : true, //* 开启镜头动作(默认开启)
         }
-
         //* 检测是否在此类被创建(运行本构造函数)时就开始加载MMD
         if (this.configuration.enableLoadMMDWhenCreateManager)
             this.startLoadingMMD();
@@ -102,26 +127,38 @@ let MMDPlayManager = class {
 
         this._createMMDPlayer();
         this._loadMMDPlayer();
-        this.renderIntervalID = setInterval(() => { this._animationRender(); }, 1000 / this.configuration.renderFPS);
+
+        //创建加载事件回调函数管理器
+        this.loadEventHolder = new LoadEventHolder();
+
+        //!!!!!!添加回调事件事件功能
+        //!!!!!!添加对应方法的回调函数
+        this.loadEventHolder.addFeedback({
+            fileOnLoad: {},
+            mmdPlayerLoaded: {},
+            whenAnimationRender: {
+                allowMultiTrigger: true,
+                funcFeedback: () => {
+
+                    // //设置循环播放检测
+                    // this._autoReplayManager(this.configuration.loopPlay);
+                }
+            }
+        });
     }
 
     //*当MMD文件加载完成时调用此函数
     onLoad(callback) {
-        //? onLoad(callback, ...args) {
-        this.onLoadParams.callbackFunc = callback;
-        //? this.onLoadParams.FuncArg = args;
+        //TODO 已废除 this.onLoadParams.callbackFunc = callback;
+        //* 添加回调函数
+        this.loadEventHolder.addFeedback({ fileOnLoad: { userFeedback: callback } });
     }
-
-    callback = new LoadEventHolder();
-
-    onLoad = new LoadEventHolder();
 
     __onLoadEventTriggered = false; //*加载事件只能触发一次 此方法检测加载事件是否被触发
     _onLoad(params = {}) {
         //传入所加载完成文件的参数
         let loadStatus = this.onLoadParams.loadStatus;
         for (const fileName in params) {
-
             this.onLoadParams.currentLoadFileNum++;
             for (const loadStatusName in loadStatus) {
                 if (loadStatusName == fileName) {
@@ -132,7 +169,7 @@ let MMDPlayManager = class {
         }
 
         //* 检测是否加载完成，仅在调用此函数时
-        let isLoadFinish = this.onLoadParams.needLoadFileNum >= this.onLoadParams.currentLoadFileNum;
+        let isLoadFinish = this.onLoadParams.currentLoadFileNum >= this.onLoadParams.needLoadFileNum;
 
         if (isLoadFinish == true && this.__onLoadEventTriggered == false) {
 
@@ -142,6 +179,7 @@ let MMDPlayManager = class {
             this._statsManager(this.configuration.enableStatsTool);
 
             //在文件加载完成后启用 当离开页面时启用暂停，减少算力消耗
+            console.log("===>", this.configuration.enablePauseWhenLeaveCurrentPage);
             this._visibilityChangePlayPauseManager(this.configuration.enablePauseWhenLeaveCurrentPage);
 
             //创建OrbitControls工具
@@ -151,19 +189,29 @@ let MMDPlayManager = class {
                 // this._controlManager(this.configuration.enableControlTool);
             }
 
-            //*调用onLoad的回调函数
-            this.onLoadParams.callbackFunc();
+            //* 执行onLoad的回调函数
+            this.loadEventHolder.call({ fileOnLoad: {} });
+
+            //* 开始渲染并播放
+
+            //* 创建时钟
+            this.clock = new THREE.Clock();
+            this.renderIntervalID = setInterval(() => { this._animationRender(); }, 1000 / this.configuration.renderFPS);
+            this.audio.play();
         }
     }
 
     _createMMDPlayer() {
-        //创建MMD加载器和MMDAnimationHelper
+        //创建MMD加载器
         this.mmdLoader = new THREE.MMDLoader(this.configuration.mmdLoader);
+
+        //创建MMDAnimationHelper
+        this.configuration.mmdAnimationHelper["pmxAnimation"] = true;
         this.mmdAnimationHelper = new THREE.MMDAnimationHelper(this.configuration.mmdAnimationHelper);
 
         //创建音频
         this.audioListener = new THREE.AudioListener();
-        camera.add(this.audioListener);
+        // camera.add(this.audioListener);
         this.audio = new THREE.Audio(this.audioListener);
         this.audioLoader = new THREE.AudioLoader();
 
@@ -172,54 +220,88 @@ let MMDPlayManager = class {
             this.stats = new Stats();
         }
 
-        //创建时钟
-        this.clock = new THREE.Clock();
-
         //创建文件时长记录器
         this.durationRecorder = new DurationRecorder();
     }
 
     _loadMMDPlayer() {
-        this.mmdLoader = new THREE.MMDLoader().loadWithAnimation(
+        //* 加载模型文件
+        this.mmdLoader.load(
             this.configuration.mmdFilesPath.modelFile,
-            this.configuration.mmdFilesPath.motionFile,
-            (modelAndAnimeInfo) => {
+            // this.configuration.mmdFilesPath.motionFile,
+            (modelInfo) => {
+                console.log("Model:", modelInfo);
+
                 //模型开启投掷投影，接收投影
-                modelAndAnimeInfo.mesh.castShadow = true;
-                modelAndAnimeInfo.mesh.receiveShadow = true;
-
-                //添加模型信息SkinnedMesh到helper
-                this.mmdAnimationHelper.add(modelAndAnimeInfo.mesh, { animation: modelAndAnimeInfo.animation, physics: true });
-
+                modelInfo.castShadow = true;
+                modelInfo.receiveShadow = true;
                 //添加到模型到场景
-                scene.add(modelAndAnimeInfo.mesh);
+                scene.add(modelInfo);
+                //更新模型文件已加载完成
+                this._onFinish("模型");
+                this._onLoad({ modelFile: true });
 
-                //加载音频文件
-                this.audioLoader.load(
-                    this.configuration.mmdFilesPath.audioFile,
-                    (audioBuffer) => {
-                        this.audio.setBuffer(audioBuffer);
-                        this.mmdAnimationHelper.add(this.audio, { delayTime: this.configuration.audioDelayTime });
+                //*加载动作文件
+                let motionPath = this.configuration.mmdFilesPath.motionFile;
+                if (motionPath != "") {
+                    this.mmdLoader.loadAnimation(
+                        motionPath,
+                        modelInfo,
+                        (motionInfo) => {
+                            console.log("Motion:", motionInfo);
+                            this.mmdAnimationHelper.add(modelInfo, {
+                                animation: motionInfo, physics: true
+                            });
 
-                        console.log(this.mmdAnimationHelper, this.configuration.mmdAnimationHelper);
-                        //更新时间记录器数据-音频
-                        this.durationRecorder.update({ audioDuration: audioBuffer.duration });
-                        //更新音频文件已加载完成
-                        this._onLoad({ audioFile: true });
+                            //更新动作文件时间记录器数据
+                            this.durationRecorder.update({ motionDuration: motionInfo.duration });
 
-                        this.mmdAnimationHelper._syncDuration();
+                            //更新动作文件已加载完成
+                            this._onFinish("动作");
+                            this._onLoad({ motionFile: true });
+                        }, this._onProgress, this._onError)
+                }
 
-                        camera.add(this.audioListener);
-                    },
-                    this._onProgress, this._onError
-                );
+                //* 加载镜头文件
+                let cameraPath = this.configuration.mmdFilesPath.cameraFile;
+                if (cameraPath != "") {
+                    this.mmdLoader.loadAnimation(
+                        cameraPath,
+                        camera,
+                        (cameraInfo) => {
+                            console.log("Camera:", cameraInfo);
+                            this.mmdAnimationHelper.add(camera, { animation: cameraInfo });
 
-                //更新动作文件时间记录器数据
-                this.durationRecorder.update({ motionDuration: modelAndAnimeInfo.animation.duration });
-                //更新动作与模型文件已加载完成
-                this._onLoad({ motionFile: true, modelFile: true })
+                            //更新镜头文件时间记录器数据
+                            this.durationRecorder.update({ cameraDuration: cameraInfo.duration });
 
-                //是否显示骨骼
+                            //更新镜头文件已加载完成
+                            this._onFinish("镜头");
+                            this._onLoad({ cameraFile: true });
+                        }, this._onProgress, this._onError)
+                }
+
+                //* 加载音频文件
+                let audioPath = this.configuration.mmdFilesPath.audioFile;
+                if (audioPath != "") {
+                    this.audioLoader.load(
+                        audioPath,
+                        (audioBuffer) => {
+                            this.audio.setBuffer(audioBuffer);
+                            // this.mmdAnimationHelper.add(this.audio, { delayTime: this.configuration.audioDelayTime });
+
+                            //更新时间记录器数据-音频
+                            this.durationRecorder.update({ audioDuration: audioBuffer.duration });
+
+                            //更新音频文件已加载完成
+                            this._onFinish("音频");
+                            this._onLoad({ audioFile: true });
+                        },
+                        this._onProgress, this._onError
+                    );
+                }
+
+                //* 是否显示骨骼
                 if (this.configuration.enableCCDIKHelper == true) {
                     this.ikSolver = new THREE.CCDIKSolver(modelAndAnimeInfo.mesh, modelAndAnimeInfo.mesh.geometry.iks);
                     this.ikHelper = this.ikSolver.createHelper();
@@ -227,24 +309,29 @@ let MMDPlayManager = class {
                     scene.add(this.ikHelper);
                 }
 
-                //是否显示物理刚体
+                //* 是否显示物理刚体
                 if (this.configuration.enablePhysicsHelper == true) {
                     this.physicsSolver = this.mmdAnimationHelper.objects.get(modelAndAnimeInfo.mesh).physics;
                     this.physicsHelper = this.physicsSolver.createHelper();
                     this.physicsHelper.visible = true;
                     scene.add(this.physicsHelper);
                 }
+
+                //* 执行mmdPlayerLoaded的回调函数
+                this.loadEventHolder.call({ whenAnimationRender: {} });
             },
             this._onProgress,
             this._onError
         )
     }
 
-    _onProgress(xhr) {
-        // console.log((xhr.loaded / xhr.total * 100) + '% loaded')
+    _onFinish(tag) {
+        console.log(tag, "文件加载完成");
+    }
 
+    _onProgress(xhr) {
         if (xhr.loaded / xhr.total == 1) {
-            console.log("Loaded.");
+            // console.log("文件载入完成", xhr);
         }
     }
 
@@ -252,42 +339,131 @@ let MMDPlayManager = class {
         throw new Error("MMDPlayManager: Error happened when loading player.\nError Info:", err);
     }
 
-    // _animationRender_loadEventHolder
+
     _animationRender(RenderType) {
-        //!callback
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        fixCameraRatio();
 
-        //????
-        // loadEventHolder = new LoadEventHolder();
-        // onLoad(callback) = loadEventHolder.event(callback);
+        let timeDelta = this.clock.getDelta();
+        this.totalTime += timeDelta;
 
-        if (RenderType == 'ControlRender') {
+        if (RenderType == 'NoMotionRender') {
+            // console.log("无动画渲染");
             //更新FPS工具
             this.stats.update();
             //是否启用暂停时包含物理动作帧
             if (this.configuration.enablePhysicWhenMMDPause == true)
                 this.mmdAnimationHelper.update(0);
-            //渲染
             renderer.render(scene, camera);
         } else if (RenderType == undefined || RenderType == null) {
-            let timeDelta = this.clock.getDelta();
-
-            this.totalTime += timeDelta;
             this.stats.update();
             this.mmdAnimationHelper.update(timeDelta);
             renderer.render(scene, camera);
-        } else if (RenderType == 'NotRender') {
-            console.log("MMD渲染帧完全关闭");
+        }
+
+        //* 执行whenAnimationRender的回调函数
+        this.loadEventHolder.call({ whenAnimationRender: {} });
+    }
+
+    replay() {
+        //* 渲染器重置
+        clearInterval(this.renderIntervalID);
+
+        //* 播放时间重置
+        this.totalTime = 0;
+
+        let helperObject = this.mmdAnimationHelper.objects;
+
+        //* 镜头重置
+        helperObject.get(camera).mixer.time = 0;
+        helperObject.get(camera).mixer._actions[0].time = 0;
+
+        let modelMeshes = playManager.mmdAnimationHelper.meshes;
+        for (let i = 0; i < modelMeshes.length; i++) {
+            //* 模型动作重置
+            helperObject.get(modelMeshes[i]).mixer.time = 0;
+            helperObject.get(modelMeshes[i]).mixer._actions[0].time = 0;
+            //* 模型物理重置
+            helperObject.get(modelMeshes[i]).physics.reset();
+        }
+
+        //*时钟重置
+        this.clock = new THREE.Clock();
+
+        //*音频重置
+        this.audio.stop();
+
+        //*启动渲染
+        this.renderIntervalID = setInterval(() => { this._animationRender(); }, 1000 / this.configuration.renderFPS);
+        this.audio.play();
+    }
+
+    changeCamera(type) {
+        if ((type == "control" || type == "remove") && this.mmdAnimationHelper.objects.get(camera)) {
+            this.mmdAnimationHelper._clearCamera(camera);
+            camera.up.set(0, 1, 0);
+
+            //!!!待加入回调函数
+            camera.position.set(0, 0, 50);
+            camera.lookAt(0, 0, 50);
+
+        } else if (type == "anime" && !this.mmdAnimationHelper.objects.get(camera)) {
+            loadCameraAnimation();
         }
     }
 
-    removeAll() {
+    loadCameraAnimation() {
+        let cameraDuration;
 
+        //* 加载镜头文件
+        let cameraPath = this.configuration.mmdFilesPath.cameraFile;
+        if (cameraPath != "" && !this.mmdAnimationHelper.objects.get(camera)) {
+            this.mmdLoader.loadAnimation(
+                cameraPath,
+                camera,
+                (cameraInfo) => {
+                    console.log("Camera:", cameraInfo);
+                    cameraDuration = cameraInfo.duration;
+
+                    if (cameraDuration >= this.totalTime) {
+                        this.mmdAnimationHelper.add(camera, { animation: cameraInfo });
+                        //* 相机动画匹配当前时间
+                        this._onLoad({ cameraFile: true });
+                    }
+                }, this._onProgress, this._onError)
+        }
+        //* 匹配当前时间
     }
 
-    rePlay() {
+    _autoReplayManager(enable) {
+        //判断结束播放，重新开始播放
+        let minDuration = this.durationRecorder.minDuration;
+        let maxDuration = this.durationRecorder.maxDuration;
+        let currentTime = this.totalTime;
 
+        if (currentTime != 0 && maxDuration != 0 && minDuration != 0) {
+            if (enable && currentTime >= minDuration) {
+                if (this.configuration.playEnd == "minPlayEnd") {
+
+                    //* 到达最小播放时间时重放
+                    clearInterval(this.renderIntervalID);
+                    this.replay();
+                } else {
+
+                    //* 到达最大播放时间时重放
+                    if (currentTime >= maxDuration) {
+                        clearInterval(this.renderIntervalID);
+                        this.replay();
+                    }
+
+                    //* 判断和设置动画无动作渲染
+                    let motionDuration = this.durationRecorder.totalDuration.motionDuration;
+                    if (motionDuration <= minDuration || motionDuration <= currentTime) {
+                        console.log("设置静态");
+                        clearInterval(this.renderIntervalID);
+                        this.renderIntervalID = setInterval(() => { this._animationRender("NoMotionRender") }, 1000 / this.configuration.renderFPS);
+                    }
+                }
+            }
+        }
     }
 
     //*播放与暂停事件
@@ -305,13 +481,19 @@ let MMDPlayManager = class {
         }
 
         if (this.playStatus == "pause") {
+            //暂停音频
+            this.audio.pause();
+
             clearInterval(this.renderIntervalID);
-            this.renderIntervalID = setInterval(() => { this._animationRender("ControlRender") }, 1000 / this.configuration.renderFPS);
+            this.renderIntervalID = setInterval(() => { this._animationRender("NoMotionRender") }, 1000 / this.configuration.renderFPS);
             return this.playStatus;
         } else if (this.playStatus == "play") {
+            //播放音频
+            this.audio.play();
+
             clearInterval(this.renderIntervalID);
-            this.clock = new THREE.Clock();
             this.renderIntervalID = setInterval(() => { this._animationRender() }, 1000 / this.configuration.renderFPS);
+            this.clock = new THREE.Clock();
             return this.playStatus;
         }
     }
@@ -340,7 +522,7 @@ let MMDPlayManager = class {
         }
     }
 
-    //!待废除
+    //!即将废除的管理器，不建议使用
     //*该监听器事件暂时只支持开启，且开启后不能被关闭
     _controlManager(enable) {
         if (enable) {
@@ -362,15 +544,16 @@ let MMDPlayManager = class {
         }
     }
 
+    //!已废除
+    //????? 没啥用 事件回调函数添加器
+    // _loadEventHolder(addFeedback = []) {
+    //     let params = {};
+    //     for (let i = 0; i < addFeedback.length; i++) {
+    //         params[addFeedback[i]] = {};
 
-    //TODO：检查中断暂停的位置，之后决定是否继续播放
-    isEndPlay(playDuration) {
-        let durationRecorder = this.durationRecorder.getMaxMinDuration();
-        if (this.configuration.playEnd == "minPlayEnd")
-            return playDuration >= durationRecorder.minDuration;
-        else
-            return playDuration >= durationRecorder.maxDuration;
-    }
+    //     }
+    //     loadEventHolder.addFeedback({ fileOnLoad: {}, whenAnimationRender: {}, mmdPlayerLoaded: {} });
+    // }
 }
 
 //*每个文件的时间长度
@@ -413,7 +596,7 @@ let DurationRecorder = class {
     }
 }
 
-//????????
+//* 事件回调函数控制器
 let LoadEventHolder = class {
 
     configuration = {}
@@ -465,10 +648,10 @@ let LoadEventHolder = class {
         //* 回调函数
         for (const key in this.configuration) {
             for (const paramsKey in params) {
-                let config = this.configuration[key]
+                let config = this.configuration[key];
                 if (key == paramsKey) {
                     if (config.allowMultiTrigger == true || config.__eventTriggered == false) {
-                        this.configuration[key].__eventTriggered == true;
+                        this.configuration[key].__eventTriggered = true;
 
                         //!如果参数只有一个，返回一个参数，否则，返回给回调函数整个数组作为参数
                         if (config.userReturnArgs.length == 0) {
